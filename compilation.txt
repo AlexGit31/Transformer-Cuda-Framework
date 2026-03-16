@@ -1,0 +1,1 @@
+nvcc -O3 -o mon_gpt main.cu GPTModel.cu TransformerBlock.cu AttentionLayer.cu FeedForwardLayer.cu RMSNormLayer.cu EmbeddingLayer.cu LinearLayer.cu DataLoader.cpp -lcublas
