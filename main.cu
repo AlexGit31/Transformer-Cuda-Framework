@@ -109,7 +109,7 @@ int main() {
     int batch_size = 128;
     int embedding_dim = 128;
     int num_blocks = 4;
-    float base_lr = 3e-4f;
+    float base_lr = 1e-3f;  // Increased from 3e-4 for faster convergence
     int total_iterations = 10000;
     int warmup_steps = 1000;
     int log_every = 50;
@@ -149,9 +149,9 @@ int main() {
         if (iter < warmup_steps) {
             lr = base_lr * ((float)(iter + 1) / (float)warmup_steps);
         } else {
-            // Cosine decay after warmup
+            // Cosine decay to 10% of base_lr (not zero!)
             float progress = (float)(iter - warmup_steps) / (float)(total_iterations - warmup_steps);
-            lr = base_lr * 0.5f * (1.0f + cosf(3.14159265f * progress));
+            lr = base_lr * (0.1f + 0.45f * (1.0f + cosf(3.14159265f * progress)));
         }
 
         dataloader.get_batch(h_X, h_targets);
