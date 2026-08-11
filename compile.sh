@@ -15,7 +15,7 @@ nvcc -O3 -o gpt_cuda \
     EmbeddingLayer.cu \
     LinearLayer.cu \
     DataLoader.cpp \
-    -lcublas
+    -lcublas -Wno-deprecated-gpu-targets
 
 if [ $? -eq 0 ]; then
     echo "✓ Compilation successful → ./gpt_cuda"
