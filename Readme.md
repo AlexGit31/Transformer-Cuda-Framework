@@ -1,86 +1,210 @@
-# 🧠 GPT-CUDA: A "From Scratch" Transformer in C++ and CUDA
+# 🧠 GPT-CUDA: A Transformer from Scratch in C++ and CUDA
 
-![C++](https://img.shields.io/badge/C++-17-blue.svg) ![CUDA](https://img.shields.io/badge/CUDA-Enabled-green.svg) ![cuBLAS](https://img.shields.io/badge/Library-cuBLAS-orange.svg) ![Status](https://img.shields.io/badge/Status-Functional-brightgreen.svg)
+[![C++](https://img.shields.io/badge/C++-17-blue.svg)](https://en.cppreference.com/)
+[![CUDA](https://img.shields.io/badge/CUDA-Enabled-green.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![cuBLAS](https://img.shields.io/badge/Library-cuBLAS-orange.svg)](https://developer.nvidia.com/cublas)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Status](https://img.shields.io/badge/Status-Functional-brightgreen.svg)]()
 
-**GPT-CUDA** is an educational and highly optimized implementation of a Generative Pre-trained Transformer (GPT) language model, written **entirely from scratch in C++ and CUDA**, without relying on any Deep Learning frameworks (no PyTorch, no TensorFlow).
+**GPT-CUDA** is an educational implementation of a Generative Pre-trained Transformer (GPT) language model, written **entirely from scratch in C++ and CUDA** — no PyTorch, no TensorFlow, no deep learning frameworks. Every matrix multiplication, every activation function, every gradient is computed by hand-written CUDA kernels.
 
-This project was built to break the "black box" of LLMs and understand the intimate, hardware-level mechanics of neural networks: VRAM management, memory coalescing, thread synchronization, and the raw mathematics of backpropagation.
-
-## 🚀 Features
-
-- **Full Transformer Architecture:** Faithful implementation of the original _Attention Is All You Need_ paper.
-- **Custom CUDA Kernels:** All compute-heavy operations (Softmax, Causal Masking, RMSNorm, AdamW) are written as custom CUDA kernels leveraging `__shared__` memory for maximum performance.
-- **Integrated AdamW Optimizer:** An adaptive optimizer featuring Momentum, Velocity, and Weight Decay, coded entirely from scratch.
-- **Extreme Numerical Stability:** Built-in protections against exploding gradients and numerical overflows (Gradient Clipping, Max-Trick for Softmax, and rigorous `NaN` handling).
-- **Autoregressive Generation:** Capable of generating text character-by-character (or token-by-token) using probabilistic sampling.
+This project was built to break the "black box" of LLMs and understand the hardware-level mechanics of transformers: VRAM management, memory coalescing, thread synchronization, and the raw mathematics of backpropagation.
 
 ---
 
-## 🏗️ Architecture and Components (Deep Dive)
+## 📊 Training Results
 
-The project relies on an Object-Oriented architecture in C++. Each layer inherits from an abstract `Layer` base class defining a strict contract: `forward`, `backward`, and `step`.
+**Model:** 6 Transformer blocks, 192-dim embeddings, 64-token context (~2.7M parameters)  
+**Data:** Shakespeare (1.1M characters, 65-character vocabulary)  
+**Hardware:** NVIDIA T4 (Colab), 15,000 iterations, ~9 minutes  
 
-### 1. Embedding and Positional Encoding (`EmbeddingLayer.cu`)
+![Training Curve](entrainement_LLM_Cuda.png)
 
-- **Word Dictionary:** A matrix projecting token IDs into a dense vector space (`embedding_dim`).
-- **Sinusoidal Positional Encoding:** Instead of learning positions, the model uses mathematical Fourier waves (Sine/Cosine) pre-computed on the CPU and transferred to the GPU. These waves are fused with the token embeddings via an ultra-fast CUDA kernel.
+| Metric | Start | End |
+|--------|-------|-----|
+| Loss | 5.51 | **1.19** ↓ |
+| Perplexity | 247 | **3.3** ↓ |
+| Text quality | Random | Character-like patterns |
 
-### 2. The Core Engine: Attention (`AttentionLayer.cu`)
+The model learns Shakespearean character distributions and produces statistically plausible sequences. Text quality is limited by the small model size and training duration — this is a proof of concept, not a production LLM.
 
-The Attention mechanism calculates the relationships between every word in the sequence.
+### Sample Generation (after 15K steps)
 
-- **cuBLAS Sgemm:** Massive matrix multiplications ($Q \times K^T$ and $Scores \times V$) are delegated to NVIDIA's hyper-optimized library (via `cublasSgemmStridedBatched`).
-- **Causal Masking:** A dedicated CUDA kernel fills the upper triangle of the attention matrix with `-1e9f` to prevent the model from "cheating" by looking into the future during training.
-- **Fused Safe-Softmax:** Softmax is a major point of failure in CUDA. Our kernel uses `__shared__` memory to perform a parallel reduction, find the maximum value (Max-Trick), and calculate the exponential without ever risking an `Overflow / NaN`.
+```
+Prompt: "First Citizen:"
+Output: First Citizen: and the state of the common the state of the state...
 
-### 3. Normalization and FeedForward (`RMSNormLayer.cu` & `FeedForwardLayer.cu`)
-
-- **RMSNorm:** Implementation of Root Mean Square Normalization. The Backward pass uses the exact, complex mathematical derivative (including the negative restoring force term) to prevent Catastrophic Collapse of the activations.
-- **MLP (FeedForward):** A classic neural network expanding the hidden dimension by a factor of 4, followed by a ReLU activation.
-
-### 4. The Survival Shield: Residual Connections (`TransformerBlock.cu`)
-
-The network integrates Skip Connections (`Output = Input + Layer(Input)`) via custom `add_tensors_kernel` addition kernels. This entirely prevents the Vanishing Gradient problem across the deep layers of the Transformer tower.
-
----
-
-## 💥 War Stories: What I Learned
-
-Building an LLM from scratch means hitting mathematical brick walls. Here are the industrial-grade bugs resolved in this repository:
-
-1. **Adam's Coma (Loss stuck at 4.17):** Without positional encoding or causal masking, the network is just a "bag of words" incapable of learning, locking the Loss at the absolute random chance score of $-\ln(1/65)$.
-2. **Variance Explosion:** Forgetting the `1.0f / sqrt(dim)` scaling factor during the Attention backward pass multiplies gradients by 128, creating infinite Velocities in the AdamW optimizer.
-3. **Catastrophic Collapse:** Using a "Straight-Through Estimator" (ignoring the derivative) on RMSNorm causes activations to grow until they exceed the `Float32` limit ($10^{38}$), generating unrecoverable `NaN`s.
-4. **Softmax Race Condition:** Failing to synchronize CUDA threads (`__syncthreads()`) when calculating the sum of exponentials corrupts the probability distribution.
+Prompt: "ROMEO:"
+Output: ROMEO: I have the state of the state of the common...
+```
 
 ---
 
-## 🛠️ Build and Run
+## 🏗️ Architecture
+
+The project uses an Object-Oriented architecture in C++. Each layer inherits from an abstract `Layer` base class defining a strict contract: `forward()`, `backward()`, and `step()`.
+
+```
+GPTModel
+├── EmbeddingLayer      — Token embeddings + sinusoidal positional encoding
+├── TransformerBlock ×6 — Pre-norm residual blocks
+│   ├── RMSNormLayer    — Root Mean Square normalization
+│   ├── AttentionLayer  — Multi-head? No, single-head causal self-attention
+│   │   ├── LinearLayer — Q, K, V projections
+│   │   ├── cuBLAS Sgemm — Q@K^T and Scores@V
+│   │   ├── Softmax     — Custom CUDA kernel with shared memory
+│   │   └── LinearLayer — Output projection (W_o)
+│   └── FeedForwardLayer
+│       ├── LinearLayer — Expansion (×4) + GELU
+│       └── LinearLayer — Contraction
+├── RMSNormLayer        — Final normalization
+└── LinearLayer         — LM head: embeddings → vocabulary logits
+```
+
+### Key Components
+
+#### Attention (`AttentionLayer.cu`)
+- **cuBLAS StridedBatched** for batched Q@K^T and Scores@V
+- **Custom CUDA Softmax** with `__shared__` memory parallel reduction
+- **Causal masking** via dedicated kernel (upper triangle → -inf)
+- **1/√d_k scaling** for stable softmax inputs
+- **Full backward pass**: dQ, dK, dV, dScores with softmax Jacobian
+
+#### FeedForward (`FeedForwardLayer.cu`)
+- Standard transformer MLP: expansion ×4 + **GELU** activation + contraction
+- GELU approximation: `x · σ(1.702x)` via tanh
+
+#### Normalization (`RMSNormLayer.cu`)
+- Root Mean Square normalization (more efficient than LayerNorm)
+- **Learnable gamma** parameter with Adam optimizer
+- Forward: parallel reduction via shared memory + `rsqrtf`
+- Backward: exact gradient with reduction
+
+#### Embedding (`EmbeddingLayer.cu`)
+- Token embeddings with **Xavier/Glorot uniform initialization** on GPU
+- **Sinusoidal positional encoding** (precomputed on CPU, fused on GPU)
+- AdamW optimizer with weight decay
+
+#### Optimizer
+- **AdamW** with decoupled weight decay on all parameters
+- Separate Adam state for weights and biases
+- LR schedule: linear warmup → cosine decay to 10%
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
+- NVIDIA GPU with CUDA toolkit (`nvcc`)
+- cuBLAS library (included with CUDA)
 
-- A CUDA-capable NVIDIA GPU.
-- The CUDA Toolkit installed (`nvcc`).
-- A raw text file named `input.txt` (e.g., Tiny Shakespeare) in the root directory.
-
-### Compilation
-
-Compile the project and link the cuBLAS library:
+### Compile & Train
 
 ```bash
-nvcc -o gpt main.cu Layer.cu LinearLayer.cu EmbeddingLayer.cu AttentionLayer.cu RMSNormLayer.cu FeedForwardLayer.cu TransformerBlock.cu GPTModel.cu -lcublas -O3
+# 1. Download training data
+wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
+
+# 2. Compile
+bash compile.sh
+
+# 3. Train
+./gpt_cuda
 ```
 
-### Execution
+Training produces `training_log.csv` with per-step loss and learning rate.
 
-```bash
-./gpt
+### Google Colab / Thunder Compute
+
+Use the self-contained notebook: **`GPT_CUDA_v2_Fixed.ipynb`**  
+It writes all source files, compiles, trains, and plots the loss curve — just run all cells.
+
+---
+
+## ⚙️ Configuration
+
+Edit hyperparameters in `main.cu`:
+
+```cpp
+int context_size = 64;      // Sequence length
+int batch_size = 64;        // Batch size
+int embedding_dim = 192;    // Embedding dimension
+int num_blocks = 6;         // Transformer blocks
+float base_lr = 3e-3f;      // Peak learning rate
+int total_iterations = 15000;
+int warmup_steps = 2000;
 ```
 
-The model will train for 10,000 iterations (configurable in main.cu) and automatically generate text upon completion.
+| VRAM | Suggested Config |
+|------|-----------------|
+| 4 GB (T4) | `ed=128, blocks=4, bs=64, cs=32` |
+| 8 GB | `ed=192, blocks=6, bs=64, cs=64` |
+| 16 GB (V100) | `ed=256, blocks=8, bs=128, cs=128` |
 
-## 🤝 Contributing & Acknowledgments
+---
 
-This project is an educational demonstration of the raw power of C++ and CUDA for Artificial Intelligence. Feel free to fork, explore the kernels, and submit PRs to optimize VRAM performance!
+## 📁 File Structure
 
-Inspired by the original GPT architecture and the "Attention Is All You Need" paper (Vaswani et al., 2017).
+| File | Description |
+|------|-------------|
+| `main.cu` | Training loop, loss, gradient clipping, LR schedule, text generation |
+| `GPTModel.cu/.cuh` | GPT model assembly (embedding → blocks → norm → head) |
+| `TransformerBlock.cu/.cuh` | Pre-norm residual block (attention + FFN) |
+| `AttentionLayer.cu/.cuh` | Causal self-attention with cuBLAS + custom softmax |
+| `FeedForwardLayer.cu/.cuh` | 2-layer MLP with GELU |
+| `LinearLayer.cu/.cuh` | Linear projection with Xavier init, AdamW, activation |
+| `EmbeddingLayer.cu/.cuh` | Token + positional embeddings |
+| `RMSNormLayer.cu/.cuh` | RMS normalization with learnable gamma |
+| `DataLoader.cpp/.h` | Character-level tokenization, random batch sampling |
+| `Layer.cuh` | Abstract base class (forward/backward/step contract) |
+| `compile.sh` | Convenience compilation script |
+| `GPT_CUDA_v2_Fixed.ipynb` | Self-contained Colab notebook |
+| `compilation.txt` | nvcc compilation command reference |
+
+---
+
+## 🔧 Implementation Details
+
+### What's Hand-Written
+- ✅ All CUDA kernels (Softmax, RMSNorm forward/backward, GELU, ReLU, AdamW, Xavier init, gradient clipping, embedding lookup, residual add, causal mask, cross-entropy backward)
+- ✅ cuBLAS integration for matrix multiplies
+- ✅ Full forward + backward passes through all layers
+- ✅ Autoregressive text generation with temperature sampling
+
+### What's Not (Yet) Implemented
+- Multi-head attention (currently single-head)
+- Dropout / regularization
+- Gradient checkpointing
+- Mixed precision (FP16)
+- FlashAttention
+- KV caching for inference
+
+### Known Limitations
+- **VRAM-heavy**: stores all intermediate activations for backward pass (no gradient checkpointing)
+- **Single-head attention**: limits model expressivity
+- **Small scale**: designed for educational use, not production training
+
+---
+
+## 🐛 Debugging Notes
+
+During development, the model initially failed to learn (loss stuck at 4.17 = random). The root cause was a **single-line bug** in `EmbeddingLayer.cu:79`:
+
+```cpp
+// BUG (v1-v4): only 1/embedding_dim threads launched
+int total = batch_size * context_size;  // 4096 threads for 786,432 elements
+
+// FIX (v5): all embedding dimensions computed
+int total = batch_size * context_size * embedding_dim;
+```
+
+The embedding kernel launched one thread per **token** instead of one per **(token × embedding_dimension)**. Only dimension 0 of each token embedding was filled; the remaining 191 dimensions were uninitialized GPU memory. Every subsequent layer processed 191/192 garbage — the model could learn character frequencies (a 1D problem) but nothing beyond.
+
+---
+
+## 📜 License
+
+MIT License — see [LICENSE](./LICENSE)
+
+---
+
+*Built from scratch. No frameworks. Just CUDA, cuBLAS, and C++.*
