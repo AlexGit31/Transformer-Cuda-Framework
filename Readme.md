@@ -18,7 +18,9 @@ This project was built to break the "black box" of LLMs and understand the hardw
 **Data:** Shakespeare (1.1M characters, 65-character vocabulary)  
 **Hardware:** NVIDIA T4 (Colab), 15,000 iterations, ~9 minutes  
 
-![Training Curve](entrainement_LLM_Cuda.png)
+<p align="center">
+  <img src="training_results.png" width="700" alt="Training curves: loss and learning rate">
+</p>
 
 | Metric | Start | End |
 |--------|-------|-----|
