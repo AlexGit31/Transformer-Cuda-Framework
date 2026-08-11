@@ -76,7 +76,7 @@ EmbeddingLayer::~EmbeddingLayer() {
 
 float* EmbeddingLayer::forward(cublasHandle_t h, void* inp, int act) {
     d_X = (int*)inp;
-    int total = batch_size * context_size;
+    int total = batch_size * context_size * embedding_dim;  // ALL output elements!
     int tpb = 256;
     int bpg = (total + tpb - 1) / tpb;
     embedding_forward_kernel<<<bpg, tpb>>>(d_X, d_W, d_PE, d_Y, embedding_dim, context_size, total);
