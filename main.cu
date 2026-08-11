@@ -105,13 +105,13 @@ int main() {
     cublasCreate(&handle);
 
     // ── Hyperparameters ───────────────────────────────────────────────
-    int context_size = 32;
-    int batch_size = 128;
-    int embedding_dim = 128;
-    int num_blocks = 4;
-    float base_lr = 1e-3f;  // Increased from 3e-4 for faster convergence
-    int total_iterations = 10000;
-    int warmup_steps = 1000;
+    int context_size = 64;     // doubled (32→64) for longer context
+    int batch_size = 64;       // halved to fit VRAM
+    int embedding_dim = 192;   // increased (128→192)
+    int num_blocks = 6;        // increased (4→6)
+    float base_lr = 3e-3f;    // increased (1e-3→3e-3)
+    int total_iterations = 15000;
+    int warmup_steps = 2000;   // longer warmup
     int log_every = 50;
 
     std::cout << "=== GPT-CUDA v2 (Fixed) ===\n";
@@ -198,7 +198,7 @@ int main() {
         // Gradient clipping
         int total_grad = total_words * vocab_size;
         int blocks_clip = (total_grad + threads - 1) / threads;
-        clip_gradients_kernel<<<blocks_clip, threads>>>(d_dY, -1.0f, 1.0f, total_grad);
+        clip_gradients_kernel<<<blocks_clip, threads>>>(d_dY, -5.0f, 5.0f, total_grad);
         cudaDeviceSynchronize();
 
         model.backward(handle, d_dY);
