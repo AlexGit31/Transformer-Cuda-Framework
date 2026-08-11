@@ -4,6 +4,8 @@
 class RMSNormLayer : public Layer {
   private:
     float* d_gamma;
+    float* d_dgamma;
+    float* d_m_gamma, *d_v_gamma;  // Adam for learnable gamma
     
     // Les tampons pour le backward bridé
     float* d_inv_rms; // Sauvegarde de la division (l'échelle)

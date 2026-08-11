@@ -113,7 +113,6 @@ int main() {
     int total_iterations = 10000;
     int warmup_steps = 1000;
     int log_every = 50;
-    int eval_every = 500;
 
     std::cout << "=== GPT-CUDA v2 (Fixed) ===\n";
     std::cout << "Context: " << context_size << ", Batch: " << batch_size
