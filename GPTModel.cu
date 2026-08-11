@@ -1,90 +1,34 @@
 #include "GPTModel.cuh"
-#include <iostream>
 
-// =========================================================================
-// MÉTHODES DE LA CLASSE
-// =========================================================================
-
-GPTModel::GPTModel(int vocab_size, int embedding_dim, int batch_size, int context_size, int num_blocks) 
-    : Layer(batch_size, context_size, embedding_dim) {
-    
-    this->vocab_size = vocab_size;
-    this->embedding_dim = embedding_dim;
-    this->batch_size = batch_size;
-    this->context_size = context_size;
-    this->num_blocks = num_blocks;
-
-    // 1. Instanciation de l'Embedding
-    embedding = new EmbeddingLayer(vocab_size, embedding_dim, batch_size, context_size);
-
-    // 2. Instanciation de la tour de Blocs Transformer
-    for (int i = 0; i < num_blocks; i++) {
-        blocks.push_back(new TransformerBlock(batch_size, context_size, embedding_dim));
-    }
-
-    // 3. Instanciation de la RMSNorm finale
-    final_norm = new RMSNormLayer(batch_size, context_size, embedding_dim);
-
-    // 4. Instanciation de la LM Head
-    // Entrée : Les 256 floats de la pensée finale du Transformer
-    // Sortie : Les 65 floats de probabilité pour chaque lettre du vocabulaire
-    int flat_batch = batch_size * context_size;
-    lm_head = new LinearLayer(flat_batch, embedding_dim, vocab_size);
+GPTModel::GPTModel(int vs, int ed, int bs, int cs, int nb) : Layer(bs, cs, ed) {
+    this->vs = vs; this->ed = ed; this->bs = bs; this->cs = cs; this->nb = nb;
+    emb = new EmbeddingLayer(vs, ed, bs, cs);
+    for (int i = 0; i < nb; i++) blocks.push_back(new TransformerBlock(bs, cs, ed));
+    fnorm = new RMSNormLayer(bs, cs, ed);
+    lm_head = new LinearLayer(bs * cs, ed, vs);
 }
-
 GPTModel::~GPTModel() {
-    delete embedding;
-    for (int i = 0; i < num_blocks; i++) {
-        delete blocks[i];
-    }
-    delete final_norm;
-    delete lm_head;
+    delete emb; for (auto* b : blocks) delete b; delete fnorm; delete lm_head;
 }
 
-float* GPTModel::forward(cublasHandle_t handle, void* d_input, int activation_type) {
-    // 1. On entre dans l'Embedding (d_input est notre int* du DataLoader)
-    float* d_out = embedding->forward(handle, d_input, ACTIVATION_NONE);
-
-    // 2. On traverse la tour de Blocs Transformer
-    for (int i = 0; i < num_blocks; i++) {
-        // La sortie du bloc i devient l'entrée du bloc i+1 !
-        d_out = blocks[i]->forward(handle, d_out, ACTIVATION_NONE);
-    }
-
-    // 3. On stabilise une dernière fois
-    d_out = final_norm->forward(handle, d_out, ACTIVATION_NONE);
-
-    // 4. On projette vers le vocabulaire
-    // d_out contient maintenant nos Logits ! (Dimension: batch_size * context_size * vocab_size)
-    float* d_logits = lm_head->forward(handle, d_out, ACTIVATION_NONE);
-    return d_logits;
+float* GPTModel::forward(cublasHandle_t h, void* inp, int act) {
+    float* out = emb->forward(h, inp, ACTIVATION_NONE);
+    for (auto* b : blocks) out = b->forward(h, out, ACTIVATION_NONE);
+    out = fnorm->forward(h, out, ACTIVATION_NONE);
+    return lm_head->forward(h, out, ACTIVATION_NONE);
 }
 
-float* GPTModel::backward(cublasHandle_t handle, float* d_dY) {
-    // d_dY est l'erreur calculée par la fonction de perte (Cross-Entropy).
-    
-    // 1. Rétropropagation dans la tête de prédiction
-    float* d_grad = lm_head->backward(handle, d_dY);
-
-    // 2. Rétropropagation dans la norme finale
-    d_grad = final_norm->backward(handle, d_grad);
-
-    // 3. Rétropropagation dans la tour de Blocs (À L'ENVERS !)
-    // On part du dernier bloc (num_blocks - 1) jusqu'au premier (0)
-    for (int i = num_blocks - 1; i >= 0; i--) {
-        d_grad = blocks[i]->backward(handle, d_grad);
-    }
-
-    // 4. Rétropropagation finale dans l'Embedding (qui met à jour le dictionnaire)
-    embedding->backward(handle, d_grad);
-    return nullptr; // Fin de la boucle pour le modèle
+float* GPTModel::backward(cublasHandle_t h, float* dY) {
+    float* grad = lm_head->backward(h, dY);
+    grad = fnorm->backward(h, grad);
+    for (int i = nb - 1; i >= 0; i--) grad = blocks[i]->backward(h, grad);
+    emb->backward(h, grad);
+    return nullptr;
 }
 
-void GPTModel::step(float learning_rate, int t) {
-    embedding->step(learning_rate, t);
-    for (int i = 0; i < num_blocks; i++) {
-        blocks[i]->step(learning_rate, t);
-    }
-    final_norm->step(learning_rate, t);
-    lm_head->step(learning_rate, t);
+void GPTModel::step(float lr, int t) {
+    emb->step(lr, t);
+    for (auto* b : blocks) b->step(lr, t);
+    fnorm->step(lr, t);
+    lm_head->step(lr, t);
 }

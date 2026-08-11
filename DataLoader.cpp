@@ -5,56 +5,26 @@
 #include <set>
 #include <cstdlib>
 
-DataLoader::DataLoader(const std::string& filepath, int batch_size, int context_size) {
-    this->batch_size = batch_size;
-    this->context_size = context_size;
-
-    // 1. Lecture du fichier texte
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        std::cerr << "ERREUR CRITIQUE : Impossible d'ouvrir le fichier " << filepath << std::endl;
-        exit(1);
-    }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    raw_text = buffer.str();
-    file.close();
-
-    // 2. Création du vocabulaire (Trouver les caractères uniques)
-    std::set<char> unique_chars(raw_text.begin(), raw_text.end());
-    vocab_size = unique_chars.size();
-
-    // 3. Remplissage des dictionnaires
+DataLoader::DataLoader(const std::string& fp, int bs, int cs) {
+    this->bs = bs; this->cs = cs;
+    std::ifstream file(fp);
+    if (!file.is_open()) { std::cerr << "ERROR: cannot open " << fp << std::endl; exit(1); }
+    std::stringstream buf; buf << file.rdbuf(); raw_text = buf.str(); file.close();
+    std::set<char> uniq(raw_text.begin(), raw_text.end());
+    vs = uniq.size();
     int i = 0;
-    for (char c : unique_chars) {
-        char_to_int[c] = i;
-        int_to_char[i] = c;
-        i++;
-    }
-
-    // 4. Tokenization : On convertit tout le texte en chiffres !
+    for (char c : uniq) { c2i[c] = i; i2c[i] = c; i++; }
     tokens.reserve(raw_text.size());
-    for (char c : raw_text) {
-        tokens.push_back(char_to_int[c]);
-    }
-
-    std::cout << "DataLoader initialise ! Taille du texte: " << tokens.size() 
-              << " caracteres, Vocabulaire: " << vocab_size << " caracteres." << std::endl;
+    for (char c : raw_text) tokens.push_back(c2i[c]);
+    std::cout << "DataLoader: " << tokens.size() << " chars, vocab=" << vs << std::endl;
 }
-
 DataLoader::~DataLoader() {}
-
-void DataLoader::get_batch(int* h_X, int* h_targets) {
-    // Pour chaque ligne du batch
-    for (int b = 0; b < batch_size; b++) {
-        // On tire un index de départ au hasard (en laissant la place pour le context_size + la cible)
-        int max_start_idx = tokens.size() - context_size - 1;
-        int start_idx = rand() % max_start_idx;
-
-        // On remplit le contexte (X) et la cible décalée d'un cran (Y)
-        for (int i = 0; i < context_size; i++) {
-            h_X[b * context_size + i] = tokens[start_idx + i];
-            h_targets[b * context_size + i] = tokens[start_idx + i + 1];
+void DataLoader::get_batch(int* X, int* Y) {
+    for (int b = 0; b < bs; b++) {
+        int start = rand() % (tokens.size() - cs - 1);
+        for (int i = 0; i < cs; i++) {
+            X[b * cs + i] = tokens[start + i];
+            Y[b * cs + i] = tokens[start + i + 1];
         }
     }
 }
